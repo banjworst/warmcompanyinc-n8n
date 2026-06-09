@@ -1,0 +1,284 @@
+{
+  "name": "WarmCompanyInc-Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "2801c6c0-4420-455e-a289-25d483eb9aad",
+      "name": "Daily 9am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "engine",
+              "value": "google_trends"
+            },
+            {
+              "name": "q",
+              "value": "personalized gifts,custom mugs,engraved gifts,personalized jewelry,custom photo gifts"
+            },
+            {
+              "name": "data_type",
+              "value": "TIMESERIES"
+            },
+            {
+              "name": "api_key",
+              "value": "3b4a6d854f88dbe67a80987415277935e2c040d4b5ada7f0ce1c084e40b7be33"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5f09a2ae-44d2-4156-92b5-15340ad809d9",
+      "name": "Fetch Google Trends",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst keywords = ['personalized gifts', 'custom mugs', 'engraved gifts', 'personalized jewelry', 'custom photo gifts'];\nconst timeline = response.interest_over_time?.timeline_data || [];\nconst scores = {};\nkeywords.forEach(k => { scores[k] = 0; });\ntimeline.slice(-4).forEach(period => {\n  (period.values || []).forEach(v => {\n    if (Object.prototype.hasOwnProperty.call(scores, v.query)) {\n      scores[v.query] += (v.extracted_value || 0);\n    }\n  });\n});\nconst topKeyword = Object.entries(scores).sort((a, b) => b[1] - a[1])[0]?.[0] || 'personalized gifts';\nreturn [{ json: { topKeyword, scores } }];"
+      },
+      "id": "916155f6-7b27-4682-bb74-b6e9a282daca",
+      "name": "Extract Top Keyword",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-image-1\",\n  \"prompt\": \"Minimalist warm and cozy mug design about {{ $json.topKeyword }}, no text, clean lines, suitable for print on demand, white background\",\n  \"n\": 1,\n  \"size\": \"1024x1024\"\n}",
+        "options": {}
+      },
+      "id": "9b1deec6-b22a-48e1-baa4-8e366f23535e",
+      "name": "Generate DALL-E Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "VlkO3lptekaUYK02",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.printify.com/v1/uploads/images.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"file_name\": \"mug-{{ $('Extract Top Keyword').item.json.topKeyword.replace(/ /g, '-') }}-{{ Date.now() }}.png\",\n  \"contents\": \"{{ $json.data[0].b64_json }}\"\n}",
+        "options": {}
+      },
+      "id": "3ee90309-d0ec-4793-abe7-b511e2d0e98d",
+      "name": "Upload to Printify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "VlkO3lptekaUYK02",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const keyword = $('Extract Top Keyword').first().json.topKeyword;\nconst uploadId = $input.first().json.id;\nconst titleCase = keyword.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');\nconst productBody = {\n  title: titleCase + \" Mug | Custom 11oz Gift Mug | Personalized Design\",\n  description: \"A one-of-a-kind \" + keyword + \" mug, designed fresh today from trending gift searches.\\n\\nPrinted on demand with vibrant, long-lasting colours on a high-quality 11oz ceramic mug.\\n\\n✓ 11oz white ceramic mug\\n✓ Dishwasher safe\\n✓ Microwave safe\\n✓ Wrap-around full-colour print\\n✓ Perfect as a gift or everyday use\",\n  blueprint_id: 68,\n  print_provider_id: 1,\n  variants: [{ id: 33719, price: 2499, is_enabled: true }],\n  print_areas: [{\n    variant_ids: [33719],\n    placeholders: [{ position: \"front\", images: [{ id: uploadId, x: 0.5, y: 0.5, scale: 1, angle: 0 }] }]\n  }],\n  tags: [\"personalized\", \"custom mug\", \"gift\", \"coffee mug\", keyword]\n};\nreturn [{ json: { productBody } }];"
+      },
+      "id": "9df5399e-286d-4826-a284-e6957ed0b64a",
+      "name": "Build Product Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.printify.com/v1/shops/27852484/products.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Build Product Body').item.json.productBody }}",
+        "options": {}
+      },
+      "id": "22f8fa69-93e7-4231-b69b-0a741031571f",
+      "name": "Create Printify Product",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "VlkO3lptekaUYK02",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.printify.com/v1/shops/27852484/products/{{ $('Create Printify Product').item.json.id }}/publish.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"title\":true,\"description\":true,\"images\":true,\"variants\":true,\"tags\":true}",
+        "options": {}
+      },
+      "id": "29d5b919-7754-4063-bb9a-8be4528af6f5",
+      "name": "Publish to Etsy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1568,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "VlkO3lptekaUYK02",
+          "name": "Header Auth account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily 9am": {
+      "main": [
+        [
+          {
+            "node": "Fetch Google Trends",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Google Trends": {
+      "main": [
+        [
+          {
+            "node": "Extract Top Keyword",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Top Keyword": {
+      "main": [
+        [
+          {
+            "node": "Generate DALL-E Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate DALL-E Image": {
+      "main": [
+        [
+          {
+            "node": "Upload to Printify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Printify": {
+      "main": [
+        [
+          {
+            "node": "Build Product Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Product Body": {
+      "main": [
+        [
+          {
+            "node": "Create Printify Product",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Printify Product": {
+      "main": [
+        [
+          {
+            "node": "Publish to Etsy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "97f4790e-d7e1-49d4-8fdd-0c9de20a270d",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "03a7c64bec36d9a98ce7f5a9d6d3f76e33527f73ae67c1b30db320d2ae4c47f5"
+  },
+  "nodeGroups": [],
+  "id": "mx1lLqUUhAeDLpsk",
+  "tags": []
+}
